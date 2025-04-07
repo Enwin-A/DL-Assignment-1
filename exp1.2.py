@@ -8,10 +8,8 @@ import os
 from PIL import Image
 import numpy as np
 
-# CUDA Configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Custom Dataset Class
 class StanfordDogsDataset(Dataset):
     def __init__(self, root_dir, transform=None):
         self.root_dir = root_dir
@@ -19,16 +17,13 @@ class StanfordDogsDataset(Dataset):
         self.classes = []
         self.image_paths = []
         self.labels = []
-        
-        # Get list of breeds from directory names
-        breed_dirs = [d for d in os.listdir(os.path.join(root_dir, "images/Images")) 
+
+        breed_dirs = [d for d in os.listdir(os.path.join(root_dir, "images/Images"))
                      if os.path.isdir(os.path.join(root_dir, "images/Images", d))]
-        
-        # Create label mapping
+
         self.class_to_idx = {breed: idx for idx, breed in enumerate(sorted(breed_dirs))}
         self.classes = list(self.class_to_idx.keys())
-        
-        # Load images with validation
+
         for breed in breed_dirs:
             breed_path = os.path.join(root_dir, "images/Images", breed)
             for fname in os.listdir(breed_path):
@@ -36,7 +31,7 @@ class StanfordDogsDataset(Dataset):
                     img_path = os.path.join(breed_path, fname)
                     try:
                         with Image.open(img_path) as img:
-                            img.verify()  # Verify image integrity
+                            img.verify()
                         self.image_paths.append(img_path)
                         self.labels.append(self.class_to_idx[breed])
                     except (IOError, OSError) as e:
@@ -48,15 +43,14 @@ class StanfordDogsDataset(Dataset):
     def __getitem__(self, idx):
         img_path = self.image_paths[idx]
         label = self.labels[idx]
-        
+
         img = Image.open(img_path).convert('RGB')
-        
+
         if self.transform:
             img = self.transform(img)
-            
+
         return img, torch.tensor(label, dtype=torch.long)
 
-# Transforms
 transform = transforms.Compose([
     transforms.Resize((180, 180)),
     transforms.RandomHorizontalFlip(),
@@ -65,13 +59,11 @@ transform = transforms.Compose([
     transforms.ToTensor(),
 ])
 
-# Load custom dataset
 full_dataset = StanfordDogsDataset(
     root_dir="stanforddogsarchive",
     transform=transform
 )
 
-# Split dataset (80% train, 20% val)
 train_size = int(0.8 * len(full_dataset))
 val_size = len(full_dataset) - train_size
 train_dataset, val_dataset = random_split(
@@ -79,11 +71,8 @@ train_dataset, val_dataset = random_split(
     generator=torch.Generator().manual_seed(42)
 )
 
-# Verify we have 120 classes
 assert len(full_dataset.classes) == 120, "Should have 120 dog breeds"
 
-# Rest of the code remains the same
-# Model Architecture
 class DogsModel(nn.Module):
     def __init__(self):
         super().__init__()
@@ -96,28 +85,26 @@ class DogsModel(nn.Module):
             nn.Flatten(),
             nn.Dropout(0.5),
             nn.Linear(128*20*20, 512), nn.ReLU(),
-            nn.Linear(512, 120)  # 120 dog breeds
+            nn.Linear(512, 120)
         )
 
     def forward(self, x):
         return self.classifier(self.features(x))
 
-# Training Setup
 model = DogsModel().to(device)
 optimizer = optim.RMSprop(model.parameters(), lr=0.0001)
 criterion = nn.CrossEntropyLoss()
 
-# Training Loop
 def train(epochs=30):
     best_acc = 0.0
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=32)
-    
+
     for epoch in range(epochs):
         model.train()
         total_loss = 0.0
         correct = 0
-        
+
         for inputs, labels in train_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
@@ -125,20 +112,19 @@ def train(epochs=30):
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            
+
             total_loss += loss.item()
             correct += (outputs.argmax(1) == labels).sum().item()
-        
-        # Validation
+
         val_acc = evaluate(val_loader)
         print(f'Epoch {epoch+1:02d}')
         print(f'Train Loss: {total_loss/len(train_loader):.4f} | Acc: {100*correct/len(train_dataset):.2f}%')
         print(f'Val Acc: {val_acc:.2f}%')
-        
+
         if val_acc > best_acc:
             best_acc = val_acc
             torch.save(model.state_dict(), 'stanford_dogs.pth')
-    
+
     print(f'Best Validation Accuracy: {best_acc:.2f}%')
 
 def evaluate(loader):
